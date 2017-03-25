@@ -37,6 +37,8 @@ import com.databricks.spark.avro.SchemaConverters.IncompatibleSchemaException
 
 class AvroSuite extends FunSuite with BeforeAndAfterAll {
   val episodesFile = "src/test/resources/episodes.avro"
+  val messyFile = "src/test/resources/messy.avro"
+  val messySchemaFile = "src/test/resources/messy.avsc"
   val testFile = "src/test/resources/test.avro"
 
   private var spark: SparkSession = _
@@ -639,6 +641,59 @@ class AvroSuite extends FunSuite with BeforeAndAfterAll {
         .avro(tempSaveDir)
 
       assert(newDf.count == 8)
+    }
+  }
+
+  // Read an avro, write it with same schema
+  test("test read original schema, write forceSchema") {
+    // Test if load works as expected
+    TestUtils.withTempDir { tempDir =>
+      val forceSchema = scala.io.Source
+        .fromFile("src/test/resources/messy.avsc")
+        .getLines()
+        .mkString("\n")
+
+      val df = spark.read.avro(messyFile)
+      assert(df.count == 100)
+
+      val tempSaveDir = s"$tempDir/save/"
+
+      df.write
+        .option("forceSchema", forceSchema)
+        .avro(tempSaveDir)
+
+      val newDf = spark.read.avro(tempSaveDir)
+      assert(newDf.count == 100)
+    }
+  }
+
+  // Read an avro, write it with converted schema, read it, write it with
+  // original forceSchema
+  test("test read original schema, write with converted schema, read, write with original schema") {
+    // Test if load works as expected
+    TestUtils.withTempDir { tempDir =>
+      val forceSchema = scala.io.Source
+        .fromFile("src/test/resources/messy.avsc")
+        .getLines()
+        .mkString("\n")
+
+      val df = spark.read.avro(messyFile)
+      assert(df.count == 100)
+
+      val tempSaveDir1 = s"$tempDir/save1/"
+      val tempSaveDir2 = s"$tempDir/save2/"
+
+      df.write.avro(tempSaveDir1)
+
+      val newDf = spark.read.avro(tempSaveDir1)
+      assert(newDf.count == 100)
+
+      newDf.write
+        .option("forceSchema", forceSchema)
+        .avro(tempSaveDir2)
+
+      val newerDf = spark.read.avro(tempSaveDir2)
+      assert(newerDf.count == 100)
     }
   }
 
