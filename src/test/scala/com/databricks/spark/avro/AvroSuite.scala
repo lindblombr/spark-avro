@@ -34,6 +34,7 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 import com.databricks.spark.avro.SchemaConverters.IncompatibleSchemaException
+import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 
 class AvroSuite extends FunSuite with BeforeAndAfterAll {
   val episodesFile = "src/test/resources/episodes.avro"
@@ -672,6 +673,19 @@ class AvroSuite extends FunSuite with BeforeAndAfterAll {
   test("test read original schema, write with converted schema, read, write with original schema") {
     // Test if load works as expected
     TestUtils.withTempDir { tempDir =>
+      def computeSumOfAllZAxisLength(df:Dataset[Row]): Long = {
+        df.rdd.map {
+          row => {
+            val topStruct = row.getAs[GenericRowWithSchema]("someRecordField")
+            val subStruct = topStruct.getAs[GenericRowWithSchema](
+              topStruct.fieldIndex("someSubRecordField")
+            )
+            System.out.println(subStruct.schema.treeString)
+            subStruct.getSeq(subStruct.fieldIndex("someSubRecordsField")).length
+          }
+        }.collect.asInstanceOf[Array[Long]].sum
+      }
+
       val forceSchema = scala.io.Source
         .fromFile("src/test/resources/messy.avsc")
         .getLines()
@@ -688,12 +702,20 @@ class AvroSuite extends FunSuite with BeforeAndAfterAll {
       val newDf = spark.read.avro(tempSaveDir1)
       assert(newDf.count == 100)
 
+      // sum z-axis length of all records
+      val zAxisTotalLength1 = computeSumOfAllZAxisLength(newDf)
+      assert(zAxisTotalLength1 == 100)
+
       newDf.write
         .option("forceSchema", forceSchema)
         .avro(tempSaveDir2)
 
       val newerDf = spark.read.avro(tempSaveDir2)
       assert(newerDf.count == 100)
+
+      // sum z-axis length of all records after re-write
+      val zAxisTotalLength2 = computeSumOfAllZAxisLength(newerDf)
+      assert(zAxisTotalLength2 == 100)
     }
   }
 
