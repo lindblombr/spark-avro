@@ -27,7 +27,7 @@ import org.apache.hadoop.fs.Path
 
 import scala.collection.immutable.Map
 import org.apache.avro.generic.GenericData.Record
-import org.apache.avro.generic.GenericRecord
+import org.apache.avro.generic.{GenericData, GenericRecord}
 import org.apache.avro.{Schema, SchemaBuilder}
 import org.apache.avro.mapred.AvroKey
 import org.apache.avro.mapreduce.AvroKeyOutputFormat
@@ -113,7 +113,19 @@ private[avro] class AvroOutputWriter(
         case bytes: Array[Byte] => ByteBuffer.wrap(bytes)
       }
       case ByteType | ShortType | IntegerType | LongType |
-           FloatType | DoubleType | StringType | BooleanType => identity
+           FloatType | DoubleType | BooleanType => identity
+      case StringType => (item: Any) => if (forceAvroSchema.isDefined) {
+        // Handle case when forcing schema where this string should map
+        // to an ENUM
+        forceAvroSchema.get.getType match {
+          case Schema.Type.ENUM => new GenericData.EnumSymbol(
+            forceAvroSchema.get, item.toString
+          )
+          case default => item
+        }
+      } else {
+        item
+      }
       case _: DecimalType => (item: Any) => if (item == null) null else item.toString
       case TimestampType => (item: Any) =>
         if (item == null) null else item.asInstanceOf[Timestamp].getTime
